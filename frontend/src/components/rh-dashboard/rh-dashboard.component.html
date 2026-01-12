@@ -1,0 +1,362 @@
+<div class="min-h-screen bg-black text-white flex">
+  <!-- Sidebar -->
+  <aside class="w-64 bg-gray-900 p-6 flex flex-col justify-between">
+    <div>
+      <div class="mb-10">
+        <app-logo></app-logo>
+        @if (authService.currentUser()) {
+          <div class="mt-4 flex items-center gap-3">
+            <div class="relative group">
+              @if (avatarUrl()) {
+                <img [src]="avatarUrl()" alt="Avatar" class="w-12 h-12 rounded-full object-cover border-2 border-gray-700">
+              } @else {
+                <div class="w-12 h-12 rounded-full bg-gray-700 flex items-center justify-center text-gray-400 text-lg font-semibold border-2 border-gray-600">
+                  {{ authService.currentUser()?.nome?.charAt(0).toUpperCase() }}
+                </div>
+              }
+              <button 
+                (click)="avatarInput.click()"
+                class="absolute inset-0 bg-black/50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer"
+                title="Editar avatar"
+              >
+                <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path>
+                </svg>
+              </button>
+              <input 
+                #avatarInput
+                type="file" 
+                accept="image/*" 
+                (change)="onAvatarFileSelected($event)"
+                class="hidden"
+              >
+            </div>
+            <p class="text-gray-400 text-sm">Olá, {{ authService.currentUser()?.nome }}!</p>
+          </div>
+        }
+      </div>
+      <nav class="space-y-2">
+        <button (click)="activeView.set('colaboradores')" [class]="activeView() === 'colaboradores' ? 'bg-[#E50914]' : 'hover:bg-gray-700'" class="w-full text-left flex items-center px-4 py-3 rounded-lg transition duration-200">
+          Colaboradores
+        </button>
+        <button (click)="activeView.set('cargos')" [class]="activeView() === 'cargos' ? 'bg-[#E50914]' : 'hover:bg-gray-700'" class="w-full text-left flex items-center px-4 py-3 rounded-lg transition duration-200">
+          Cargos
+        </button>
+        <button (click)="activeView.set('setores')" [class]="activeView() === 'setores' ? 'bg-[#E50914]' : 'hover:bg-gray-700'" class="w-full text-left flex items-center px-4 py-3 rounded-lg transition duration-200">
+          Setores
+        </button>
+      </nav>
+    </div>
+    <button (click)="logout()" class="w-full text-left flex items-center px-4 py-3 rounded-lg hover:bg-gray-700 transition duration-200">
+      Sair
+    </button>
+  </aside>
+
+  <!-- Main Content -->
+  <main class="flex-1 p-8 overflow-y-auto">
+    @if (successMessage()) {
+      <div class="mb-4 bg-green-900 border-l-4 border-green-500 text-green-100 p-4 rounded-md" role="alert">
+        <p>{{ successMessage() }}</p>
+      </div>
+    }
+    @if (errorMessage() && !showModal()) {
+      <div class="mb-4 bg-red-900 border-l-4 border-red-500 text-red-100 p-4 rounded-md" role="alert">
+        <p>{{ errorMessage() }}</p>
+      </div>
+    }
+    @switch (activeView()) {
+      @case ('colaboradores') {
+        <div class="flex justify-between items-center mb-6">
+          <h1 class="text-3xl font-bold">Gerenciamento de Colaboradores</h1>
+          <button (click)="openAddCollaboratorModal()" class="px-4 py-2 bg-[#E50914] text-white rounded-lg hover:bg-red-700 transition duration-300">
+            Adicionar Colaborador
+          </button>
+        </div>
+        <div class="mb-6">
+          <input 
+            type="text" 
+            placeholder="Pesquisar por nome, setor, cargo ou status..." 
+            [value]="searchTerm()"
+            (input)="searchTerm.set($any($event.target).value)"
+            class="w-full px-4 py-3 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#E50914] focus:border-transparent transition"
+          />
+        </div>
+        <div class="bg-gray-800 rounded-2xl shadow-lg overflow-hidden">
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm text-left text-gray-300">
+              <thead class="text-xs text-gray-400 uppercase bg-gray-900">
+                <tr>
+                  <th class="px-6 py-3 whitespace-nowrap">ID</th>
+                  <th class="px-6 py-3 whitespace-nowrap">Nome</th>
+                  <th class="px-6 py-3 whitespace-nowrap">CPF</th>
+                  <th class="px-6 py-3 whitespace-nowrap">Setor</th>
+                  <th class="px-6 py-3 whitespace-nowrap">Cargo</th>
+                  <th class="px-6 py-3 whitespace-nowrap">Salário</th>
+                  <th class="px-6 py-3 whitespace-nowrap">Gestor</th>
+                  <th class="px-6 py-3 text-center whitespace-nowrap">Solicitação de Férias</th>
+                  <th class="px-6 py-3 text-center whitespace-nowrap">Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (col of filteredColaboradores(); track col.id) {
+                  <tr class="border-b border-gray-700 hover:bg-gray-700/50">
+                    <td class="px-6 py-4 whitespace-nowrap">{{ col.id }}</td>
+                    <td class="px-6 py-4 font-medium text-white whitespace-nowrap">{{ col.nome }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                       @if(col.cpf) {
+                        {{ formatCpf(col.cpf) }}
+                       } @else {
+                        <span class="text-gray-500">N/A</span>
+                       }
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">{{ col.setorNome }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">{{ col.cargoNome }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                      @if(col.salario > 0) {
+                        {{ col.salario | currency:'BRL' }}
+                      } @else {
+                        <span class="text-gray-500">N/A</span>
+                      }
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">{{ col.gestorNome || 'N/A' }}</td>
+                    <td class="px-6 py-4 text-center">
+                      @if (col.solicitacaoFerias) {
+                        <div class="flex items-center justify-center space-x-2">
+                          <span class="px-2 py-1 text-xs font-semibold text-yellow-800 bg-yellow-200 rounded-full">Pendente</span>
+                          <button (click)="approveFerias(col.solicitacaoFerias.id)" class="px-3 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition">Aprovar</button>
+                          <button (click)="openReprovalModal(col.solicitacaoFerias)" class="px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition">Reprovar</button>
+                        </div>
+                      } @else {
+                        <span class="text-gray-500">N/A</span>
+                      }
+                    </td>
+                    <td class="px-6 py-4 text-center">
+                        <div class="flex items-center justify-center space-x-2">
+                           <button (click)="openEditCollaboratorModal(col)" class="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition">Editar</button>
+                           <button (click)="openDeleteConfirmation(col)" class="px-3 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-500 transition">Excluir</button>
+                        </div>
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        </div>
+      }
+      @case ('cargos') {
+        <h1 class="text-3xl font-bold mb-6">Gerenciamento de Cargos</h1>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div class="bg-gray-800 rounded-2xl shadow-lg p-6">
+                <h2 class="text-xl font-semibold mb-4">Criar Novo Cargo</h2>
+                <form [formGroup]="cargoForm" (ngSubmit)="saveCargo()" class="space-y-4">
+                    <input formControlName="nome" placeholder="Nome do Cargo" class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#E50914]">
+                    <button type="submit" [disabled]="cargoForm.invalid" class="w-full py-2 bg-[#E50914] rounded-lg hover:bg-red-700 disabled:bg-red-900 disabled:cursor-not-allowed transition">Salvar Cargo</button>
+                </form>
+            </div>
+            <div class="bg-gray-800 rounded-2xl shadow-lg p-6">
+                <h2 class="text-xl font-semibold mb-4">Cargos Existentes</h2>
+                <ul class="space-y-2 max-h-96 overflow-y-auto">
+                    @for(cargo of cargos(); track cargo.id){
+                        <li class="bg-gray-700 p-3 rounded-lg flex justify-between items-center">
+                            <span>{{ cargo.nome }}</span>
+                            <div class="flex gap-2">
+                                <button (click)="openEditCargoModal(cargo)" class="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition">Editar</button>
+                                <button (click)="openDeleteCargoModal(cargo)" class="px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition">Excluir</button>
+                            </div>
+                        </li>
+                    }
+                </ul>
+            </div>
+        </div>
+      }
+      @case ('setores') {
+        <h1 class="text-3xl font-bold mb-6">Gerenciamento de Setores</h1>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div class="bg-gray-800 rounded-2xl shadow-lg p-6">
+                <h2 class="text-xl font-semibold mb-4">Criar Novo Setor</h2>
+                <form [formGroup]="setorForm" (ngSubmit)="saveSetor()" class="space-y-4">
+                    <input formControlName="nome" placeholder="Nome do Setor" class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#E50914]">
+                    <button type="submit" [disabled]="setorForm.invalid" class="w-full py-2 bg-[#E50914] rounded-lg hover:bg-red-700 disabled:bg-red-900 disabled:cursor-not-allowed transition">Salvar Setor</button>
+                </form>
+            </div>
+            <div class="bg-gray-800 rounded-2xl shadow-lg p-6">
+                <h2 class="text-xl font-semibold mb-4">Setores Existentes</h2>
+                <ul class="space-y-2 max-h-96 overflow-y-auto">
+                    @for(setor of setores(); track setor.id){
+                        <li class="bg-gray-700 p-3 rounded-lg flex justify-between items-center">
+                            <span>{{ setor.nome }}</span>
+                            <div class="flex gap-2">
+                                <button (click)="openEditSetorModal(setor)" class="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition">Editar</button>
+                                <button (click)="openDeleteSetorModal(setor)" class="px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition">Excluir</button>
+                            </div>
+                        </li>
+                    }
+                </ul>
+            </div>
+        </div>
+      }
+    }
+  </main>
+</div>
+
+<!-- Modal Adicionar/Editar Colaborador -->
+@if (showModal()) {
+  <div class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
+    <div class="bg-gray-800 rounded-2xl shadow-lg w-full max-w-2xl p-8 max-h-[90vh] overflow-y-auto">
+      <h2 class="text-2xl font-bold mb-6">
+        {{ modalMode() === 'add' ? 'Adicionar Novo Colaborador' : 'Editar Colaborador' }}
+      </h2>
+      @if (errorMessage()) {
+        <div class="bg-red-900 border-l-4 border-red-500 text-red-100 p-4 rounded-md mb-4" role="alert">
+          <p>{{ errorMessage() }}</p>
+        </div>
+      }
+      <form [formGroup]="colaboradorForm" (ngSubmit)="saveColaborador()" class="space-y-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <input formControlName="nome" placeholder="Nome completo" class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-[#E50914]">
+          <input formControlName="cpf" (input)="handleCpfInput($event)" placeholder="CPF (somente números)" maxlength="11" class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-[#E50914]" [readonly]="modalMode() === 'edit' && editingCollaborator()?.cpf">
+          <select formControlName="setorId" class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-[#E50914]">
+            <option [ngValue]="null" disabled>Selecione o Setor</option>
+            @for(setor of setores(); track setor.id){ <option [ngValue]="setor.id">{{ setor.nome }}</option> }
+          </select>
+          <select formControlName="cargoId" class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-[#E50914]">
+            <option [ngValue]="null" disabled>Selecione o Cargo</option>
+            @for(cargo of cargos(); track cargo.id){ <option [ngValue]="cargo.id">{{ cargo.nome }}</option> }
+          </select>
+          <input formControlName="salario" type="number" placeholder="Salário" class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-[#E50914]">
+          
+          <select formControlName="gestorId" class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-[#E50914]">
+            <option [ngValue]="null" disabled>Selecione o Gestor {{ isGestor() || selectedCargoNome() === 'RH' ? '(Opcional)' : '' }}</option>
+            @for(gestor of gestores(); track gestor.id){ <option [ngValue]="gestor.id">{{ gestor.nome }}</option> }
+          </select>
+          @if (requiresLogin()) {
+            <input formControlName="email" type="email" placeholder="E-mail de Acesso" class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-[#E50914]">
+            <input formControlName="senha" type="password" placeholder="{{ modalMode() === 'add' ? 'Senha de Acesso' : 'Nova Senha (deixe em branco para não alterar)' }}" class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-[#E50914]">
+          }
+        </div>
+        <div class="flex justify-end space-x-4 pt-4">
+          <button type="button" (click)="showModal.set(false)" class="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-500 transition">Cancelar</button>
+          <button type="submit" [disabled]="colaboradorForm.invalid" class="px-6 py-2 bg-[#E50914] rounded-lg hover:bg-red-700 disabled:bg-red-900 disabled:cursor-not-allowed transition">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+}
+
+<!-- Modal Reprovar Férias -->
+@if (showReprovalModal()) {
+    <div class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
+        <div class="bg-gray-800 rounded-2xl shadow-lg w-full max-w-md p-8">
+            <h2 class="text-2xl font-bold mb-6">Reprovar Solicitação</h2>
+            <form [formGroup]="reprovalForm" (ngSubmit)="reproveFerias()" class="space-y-4">
+                <textarea formControlName="observacao" placeholder="Escreva a observação da reprovação" rows="4" class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-[#E50914]"></textarea>
+                <div class="flex justify-end space-x-4 pt-4">
+                    <button type="button" (click)="showReprovalModal.set(false)" class="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-500 transition">Cancelar</button>
+                    <button type="submit" [disabled]="!selectedFerias()" class="px-6 py-2 bg-[#E50914] rounded-lg hover:bg-red-700 disabled:bg-red-900 disabled:cursor-not-allowed transition">Confirmar Reprovação</button>
+                </div>
+            </form>
+        </div>
+    </div>
+}
+
+<!-- Modal Excluir Colaborador -->
+@if (showDeleteModal()) {
+    <div class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
+        <div class="bg-gray-800 rounded-2xl shadow-lg w-full max-w-md p-8">
+            <h2 class="text-2xl font-bold mb-4">Confirmar Exclusão</h2>
+            <p class="text-gray-300 mb-6">
+                Tem certeza que deseja excluir o colaborador 
+                <strong class="text-white">{{ collaboratorToDelete()?.nome }}</strong>? 
+                Esta ação não pode ser desfeita.
+            </p>
+            <div class="flex justify-end space-x-4">
+                <button type="button" (click)="showDeleteModal.set(false)" class="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-500 transition">Cancelar</button>
+                <button type="button" (click)="confirmDelete()" class="px-6 py-2 bg-[#E50914] rounded-lg hover:bg-red-700 transition">Confirmar Exclusão</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Modal Editar/Criar Cargo -->
+@if (showCargoModal()) {
+    <div class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
+        <div class="bg-gray-800 rounded-2xl shadow-lg w-full max-w-md p-8">
+            <h2 class="text-2xl font-bold mb-6">{{ editingCargo() ? 'Editar Cargo' : 'Criar Novo Cargo' }}</h2>
+            <form [formGroup]="cargoForm" (ngSubmit)="saveCargo()" class="space-y-4">
+                <input formControlName="nome" placeholder="Nome do Cargo" class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#E50914]">
+                <div class="flex justify-end space-x-4 pt-4">
+                    <button type="button" (click)="showCargoModal.set(false)" class="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-500 transition">Cancelar</button>
+                    <button type="submit" [disabled]="cargoForm.invalid" class="px-6 py-2 bg-[#E50914] rounded-lg hover:bg-red-700 disabled:bg-red-900 disabled:cursor-not-allowed transition">Salvar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+}
+
+<!-- Modal Excluir Cargo -->
+@if (showDeleteCargoModal()) {
+    <div class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
+        <div class="bg-gray-800 rounded-2xl shadow-lg w-full max-w-md p-8">
+            <h2 class="text-2xl font-bold mb-4">Confirmar Exclusão</h2>
+            <p class="text-gray-300 mb-6">Tem certeza que deseja excluir o cargo <strong>{{ cargoToDelete()?.nome }}</strong>?</p>
+            <div class="flex justify-end space-x-4">
+                <button type="button" (click)="showDeleteCargoModal.set(false)" class="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-500 transition">Cancelar</button>
+                <button type="button" (click)="confirmDeleteCargo()" class="px-6 py-2 bg-red-600 rounded-lg hover:bg-red-700 transition">Confirmar Exclusão</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Modal Editar/Criar Setor -->
+@if (showSetorModal()) {
+    <div class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
+        <div class="bg-gray-800 rounded-2xl shadow-lg w-full max-w-md p-8">
+            <h2 class="text-2xl font-bold mb-6">{{ editingSetor() ? 'Editar Setor' : 'Criar Novo Setor' }}</h2>
+            <form [formGroup]="setorForm" (ngSubmit)="saveSetor()" class="space-y-4">
+                <input formControlName="nome" placeholder="Nome do Setor" class="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#E50914]">
+                <div class="flex justify-end space-x-4 pt-4">
+                    <button type="button" (click)="showSetorModal.set(false)" class="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-500 transition">Cancelar</button>
+                    <button type="submit" [disabled]="setorForm.invalid" class="px-6 py-2 bg-[#E50914] rounded-lg hover:bg-red-700 disabled:bg-red-900 disabled:cursor-not-allowed transition">Salvar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+}
+
+<!-- Modal Excluir Setor -->
+@if (showDeleteSetorModal()) {
+    <div class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
+        <div class="bg-gray-800 rounded-2xl shadow-lg w-full max-w-md p-8">
+            <h2 class="text-2xl font-bold mb-4">Confirmar Exclusão</h2>
+            <p class="text-gray-300 mb-6">Tem certeza que deseja excluir o setor <strong>{{ setorToDelete()?.nome }}</strong>?</p>
+            <div class="flex justify-end space-x-4">
+                <button type="button" (click)="showDeleteSetorModal.set(false)" class="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-500 transition">Cancelar</button>
+                <button type="button" (click)="confirmDeleteSetor()" class="px-6 py-2 bg-red-600 rounded-lg hover:bg-red-700 transition">Confirmar Exclusão</button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Modal Avatar -->
+@if (showAvatarModal()) {
+    <div class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
+        <div class="bg-gray-800 rounded-2xl shadow-lg w-full max-w-md p-8">
+            <h2 class="text-2xl font-bold mb-6">Alterar Avatar</h2>
+            @if (avatarFile) {
+                <div class="mb-4">
+                    <img [src]="getAvatarPreview()" alt="Preview" class="w-32 h-32 rounded-full mx-auto object-cover border-2 border-gray-600">
+                </div>
+            }
+            <div class="flex justify-end space-x-4 pt-4">
+                <button type="button" (click)="showAvatarModal.set(false); avatarFile = null" class="px-6 py-2 bg-gray-600 rounded-lg hover:bg-gray-500 transition">Cancelar</button>
+                <button type="button" (click)="uploadAvatar()" [disabled]="!avatarFile || isUploadingAvatar()" class="px-6 py-2 bg-[#E50914] rounded-lg hover:bg-red-700 disabled:bg-red-900 disabled:cursor-not-allowed transition">
+                    @if (isUploadingAvatar()) {
+                        Enviando...
+                    } @else {
+                        Confirmar
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}

@@ -1,0 +1,5 @@
+
+{
+  "name": "Vacation Request Flow System",
+  "description": "A comprehensive system for managing employee vacation requests, with distinct interfaces for HR personnel and managers. It handles authentication, access control, employee management, and the full vacation request/approval workflow."
+}

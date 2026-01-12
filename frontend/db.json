@@ -1,0 +1,32 @@
+{
+  "usuarios": [
+    { "id": 1, "nome": "Maria Souza", "email": "maria.rh@empresa.com", "senha": "rh123", "setor": "RH", "cargo": "Analista de RH" },
+    { "id": 2, "nome": "João Silva", "email": "joao.gestor@empresa.com", "senha": "gestor123", "setor": "TI", "cargo": "Gestor" },
+    { "id": 3, "nome": "Carlos Pereira", "email": "carlos.gestor@empresa.com", "senha": "gestor123", "setor": "Financeiro", "cargo": "Gestor" }
+  ],
+  "colaboradores": [
+    { "id": 101, "nome": "Ana Costa", "cpf": "11122233344", "setorId": 1, "cargoId": 2, "salario": 5000, "gestorId": 2 },
+    { "id": 102, "nome": "Bruno Lima", "cpf": "55566677788", "setorId": 2, "cargoId": 3, "salario": 4500, "gestorId": 3 }
+  ],
+  "setores": [
+    { "id": 1, "nome": "TI" },
+    { "id": 2, "nome": "Financeiro" },
+    { "id": 3, "nome": "Comercial" },
+    { "id": 4, "nome": "RH"}
+  ],
+  "cargos": [
+    { "id": 1, "nome": "Gestor" },
+    { "id": 2, "nome": "Desenvolvedor" },
+    { "id": 3, "nome": "Analista" }
+  ],
+  "ferias": [
+    { 
+      "id": 1, 
+      "colaboradorId": 101, 
+      "dataInicio": "2024-09-01", 
+      "dias": 15, 
+      "observacoes": "Viagem em família", 
+      "status": "Pendente" 
+    }
+  ]
+}

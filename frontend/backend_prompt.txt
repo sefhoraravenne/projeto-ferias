@@ -1,0 +1,536 @@
+Backend NestJS para Sistema de Solicitação de Férias (compatível com frontend Angular existente)
+
+Contexto geral
+- Frontend: Projeto Angular 20 já pronto (`vacation-request-flow-system`) que hoje consome dados falsos de um `DataService` em memória e de um `db.json`.
+- Objetivo: Criar um backend real em NestJS que exponha uma API REST autenticada, com todas as mesmas regras de negócio, validações e estruturas de dados usadas hoje no frontend.
+- Banco de dados: PostgreSQL, database `projeto-ferias`, schema `public`, acessado via Prisma ORM.
+- Conexão `.env`: 
+  - `DATABASE_URL="postgresql://postgres:1104@localhost:5432/projeto-ferias?schema=public"`
+- Node: v22
+- Framework backend: NestJS (última versão estável)
+- ORM: Prisma
+- Documentação: Swagger (OpenAPI) exposto em `/api-docs` ou similar.
+- Autenticação: via token (Deve ser JWT) retornado no login, mas a validação de credenciais deve ser 100% compatível com o frontend atual (com hash).
+- Atualmente o frontend usa um backend falso (`DataService` em memória e `db.json`). Todo esse backend falso será substituído por chamadas HTTP para a API NestJS, então a API deve ser projetada para bater com as necessidades do front.
+
+Tecnologias e estrutura obrigatórias
+- NestJS com estrutura modular:
+  - `AuthModule`
+  - `UsersModule` (colaboradores, gestores, RH, cargos, setores)
+  - `VacationRequestsModule` (solicitações de férias)
+- Prisma:
+  - Gerar schema Prisma e modelos com todas as relações e enums abaixo.
+  - Criar seed inicial com pelo menos um usuário RH com acesso ao sistema.
+- Scripts no `package.json` do backend:
+  - `"prisma:generate": "prisma generate"`
+  - `"prisma:migrate": "prisma migrate dev"`
+  - `"prisma:seed": "ts-node prisma/seed.ts"`
+- DTOs e validação:
+  - Usar `class-validator` e `class-transformer` em todos os DTOs de entrada (body, params, query).
+  - As validações devem replicar fielmente as regras de formulário e negócio vistas no frontend Angular.
+- Swagger:
+  - Documentar todos os endpoints (rotas, parâmetros, bodies, responses, códigos de erro, descrição das regras).
+
+Modelagem de dados (Prisma)
+
+Requisitos gerais de domínio
+- Teremos tabelas:
+  - `User` (colaboradores, gestores, RH)
+  - `Cargo`
+  - `Setor`
+  - `Ferias` (solicitação de férias)
+- Há uma hierarquia:
+  - Funcionários têm sempre um gestor (exceto quando subordinados diretamente ao RH).
+  - Gestores podem ter subordinados ou não (colaboradores).
+  - RH tem visão global e pode aprovar ou reprovar férias de qualquer colaborador.
+
+Modelo `User`
+- Campos (versão consolidada e corrigida a partir da descrição e do front):
+  - `id`: `String` @id @default(uuid())
+  - `nome`: `String` (tamanho até 100)
+  - `email`: `String` @unique
+  - `senha`: `String` (Texto puro, sem hash. Deve ser comparado literalmente no login, igual ao `DataService`/`db.json` do frontend.)
+  - `cpf`: `String` @unique, tamanho 11, apenas dígitos.
+  - `idade`: `Int` (3 dígitos no máximo)
+  - `salario`: `Float`
+  - `tipo`: enum `Tipo` (Funcionario | Gestor | RH), default Funcionario.
+  - `cargo`: enum `Cargo`
+  - `setor`: enum `Setor`
+  - Relação de gestão:
+    - `gestorId`: `String?` (FK para `User.id`)
+    - `gestor`: `User?` @relation("UserGestor", fields: [gestorId], references: [id])
+    - `funcionarios`: `User[]` @relation("UserGestor") — lista de subordinados desse gestor.
+  - Relação com férias:
+    - `ferias`: `Ferias[]`
+  - Auditoria:
+    - `createdAt`: `DateTime` @default(now())
+    - `updatedAt`: `DateTime` @updatedAt
+
+Enums
+- `enum Tipo`:
+  - `Funcionario`
+  - `Gestor`
+  - `RH`
+
+- `enum Cargo` (usar nomes coerentes com a descrição original, mas você pode manter uma lista inicial e permitir expansão via seed ou CRUD, se necessário):
+  - `dev_front_angular`
+  - `dev_back_node`
+  - `gerente_projeto`
+  - `gerente_rh`
+  - `arquiteto_sfware` (ou corrigir para `arquiteto_sfw`, mas manter consistência)
+
+- `enum Setor`:
+  - `RH`
+  - `TI`
+  - `FINANCEIRO`
+  - `COMERCIAL`
+
+- `enum Status`:
+  - `Pendente`
+  - `Aprovado`
+  - `Reprovado`
+
+Modelo `Cargo`
+- Mesmo que o frontend permita cadastro dinâmico de cargos, para o backend estruturado:
+  - Criar tabela `Cargo` com:
+    - `id`: `Int` @id @default(autoincrement())
+    - `nome`: `String` (ex: "Gestor", "Desenvolvedor", "Analista", "RH")
+    - Relacionamento opcional com usuários, se necessário, ou tratar `Cargo` apenas como enum em `User`. 
+  - Observação: no front atual, cargos são carregados de uma coleção (`_cargos`) com campos `{ id, nome }` e podem ser adicionados via tela de RH, então o backend precisa suportar CRUD de cargos dinâmicos. No modelo final, **use tabela `cargos` para esses itens dinâmicos** e trate o enum `Cargo` como categoria/função mais ampla; ou use somente tabela `cargos` (sem enum fixo) se quiser seguir 100% o comportamento do front.
+
+Modelo `Setor`
+- Similar a `Cargo`, o front trata setores como registro dinâmico:
+  - `id`: `Int` @id @default(autoincrement())
+  - `nome`: `String` (ex: "TI", "Financeiro", "Comercial", "RH")
+  - Backend deve oferecer CRUD para manter compatibilidade com as telas de RH (criação de novos setores).
+
+Modelo `Ferias` (Solicitação de férias)
+- Campos:
+  - `id`: `String` @id @default(uuid())
+  - `userId`: `String` (FK para `User.id` — colaborador que está tirando férias)
+  - `user`: relação com `User`
+  - `startDate`: `DateTime` (equivalente a `dataInicio`)
+  - `endDate`: `DateTime` (equivalente a `dataFim`, pode ser derivado de `startDate + dias`)
+  - `periodo`: `Int` (equivalente a `dias`; deve ser 7 ou 15)
+  - `motivo`: `String` (até 100 caracteres, equivalente a `observacoes`)
+  - `status`: enum `Status` @default(Pendente)
+  - Auditoria:
+    - `createdAt`: `DateTime` @default(now())
+    - `updatedAt`: `DateTime` @updatedAt
+  - Campos opcionais:
+    - `observacaoReprovacao?: String` (texto usado no front quando RH reprova e informa observação)
+
+Seed Prisma
+- Criar `prisma/seed.ts` para:
+  - Criar pelo menos:
+    - 1 usuário RH:
+      - `nome`: "Sefhora Ravenne"
+      - `email`: "sefhora.rh@empresa.com"
+      - `senha`: "rh123"
+      - `setor`: RH
+      - `cargo`: valor coerente (ex: `gerente_rh` ou equivalente)
+      - `tipo`: RH
+      - `cpf`, `idade`, `salario`: preencher com valores válidos.
+    - 1 ou mais gestores:
+      - "João Silva" (`TI`, cargo "Gestor") com senha "gestor123"
+      - "Carlos Pereira" (`FINANCEIRO`, cargo "Gestor") com senha "gestor123"
+    - Alguns colaboradores (funcionários) com `gestorId` apontando para um dos gestores.
+  - Criar registros iniciais em `Setor`:
+    - TI, Financeiro, Comercial, RH
+  - Criar registros iniciais em `Cargo`:
+    - Gestor, Desenvolvedor, Analista, RH
+
+Regras de autenticação e autorização
+
+Login
+- Endpoint: `POST /auth/login`
+- Body:
+  - `{ email: string, senha: string }`
+- Lógica:
+  - Buscar usuário por `email`.
+  - Comparar a senha recebida com `senha` do banco **com hash**.
+  - Se e-mail/senha inválidos → retornar 401 com mensagem compatível com front: "E-mail ou senha inválidos."
+  - Se login válido:
+    - Apenas usuários com:
+      - `tipo = RH` (ou `setor = 'RH'`) 
+      - OU `tipo = Gestor` (ou `cargo = 'Gestor'`)
+      - terão acesso ao sistema (como no `AuthService` atual).
+    - Funcionário comum (tipo Funcionario) **não pode logar**; retornar erro "Acesso não autorizado." (400/403).
+  - Se login autorizado:
+    - Gerar um token (JWT) contendo:
+      - `sub` = `user.id`
+      - `email`
+      - `tipo`
+      - `cargo`
+      - `setor`
+    - Retornar:
+      - `access_token` (string)
+      - `user` completo (objeto com todos campos que o front precisar: id, nome, email, setor, cargo, tipo, etc.).
+
+Guarda de rota / Authorization
+- O frontend hoje usa `authGuard` com base em dados do usuário na memória/localStorage e não em token.
+- No backend, implemente:
+  - Guardas NestJS:
+    - `JwtAuthGuard` para validar token.
+    - `RolesGuard` ou similar para extrair do token o `tipo` / `setor` / `cargo` e impor:
+      - Role `RH`: acesso total.
+      - Role `Gestor`: acesso a recursos de seus subordinados.
+      - Role `Funcionario`: sem acesso às rotas de dashboard (pode ser usado futuramente).
+  - Use decorators como `@UseGuards(JwtAuthGuard, RolesGuard)` e `@Roles('RH')`, `@Roles('Gestor')`, etc.
+
+Regras de permissão (refletindo o front)
+- Tipos de usuário:
+  - `RH`:
+    - Pode ver todos os colaboradores (colaboradores + usuários Gestor/RH).
+    - Pode cadastrar, editar e excluir colaboradores.
+    - Pode cadastrar, editar e excluir cargos.
+    - Pode cadastrar, editar e excluir setores.
+    - Pode aprovar/reprovar solicitações de férias de qualquer colaborador.
+  - `Gestor`:
+    - Pode ver apenas seus subordinados (colaboradores cujo `gestorId` = id do gestor).
+    - Pode criar solicitações de férias para seus subordinados.
+    - Não aprova/reprova férias (isso é responsabilidade do RH).
+  - `Funcionario`:
+    - No front atual, não tem acesso direto. No backend, pode ser previsto para futuras APIs, mas deve ser restrito conforme especificado (sem acesso às rotas administrativas).
+
+Regras de cadastro de usuários/colaboradores
+
+Campos obrigatórios
+- No cadastro de qualquer colaborador (incluindo gestores/RH), os seguintes campos são obrigatórios:
+  - `nome`
+  - `email` (se `requiresLogin` = true → para Gestor e RH)
+  - `cpf` (para colaboradores "com CPF"; para registros somente de usuário pode ser vazio, mas o backend deve favorecer a consistência e exigir CPF para colaboradores reais)
+  - `cargo`
+  - `setor`
+  - `tipo`
+  - `salario`
+
+Regra de gestor
+- "Os funcionários devem ter um gerente (relação), (quando não tiver, fica abaixo do RH)"
+- Interpretação:
+  - Se `tipo` for `Funcionario` (não Gestor, não RH):
+    - `gestorId` é obrigatório (não nulo).
+    - Esse `gestorId` deve apontar para um usuário com `tipo = Gestor` ou `tipo = RH`.
+  - Se `tipo = Gestor`:
+    - `gestorId` é opcional.
+    - Se não houver `gestorId`, considera-se que esse gestor responde ao RH (não há campo explícito de RHId, apenas regra de negócio; pode ser só documentado).
+  - Se `tipo = RH`:
+    - `gestorId` opcional/nulo.
+
+Regra `tipo` e login
+- No frontend, a criação/edição de colaboradores aplica:
+  - `requiresLogin = true` se cargo selecionado for "Gestor" ou "RH".
+  - Para esses casos:
+    - `email` obrigatório, válido.
+    - Na criação:
+      - `senha` obrigatória, mínimo 6 caracteres.
+    - Na edição:
+      - Se o colaborador já era um login user (Gestor/RH) e o cargo continua exigindo login:
+        - senha não é obrigatória, mas se informada, deve ter no mínimo 6 caracteres.
+  - Se o colaborador não for de cargo "Gestor" ou "RH":
+    - `email` e `senha` não são obrigatórios e podem ser removidos; se existir um usuário associado, ele pode ser excluído (caso de despromoção).
+- Backend deve reproduzir essa lógica em DTOs e services:
+  - Ao criar colaborador:
+    - Se `tipo` ou `cargo` for de login (Gestor/RH) → validar email/senha e criar user com credenciais.
+  - Ao editar colaborador:
+    - Promoção:
+      - De cargo sem login → cargo com login (Gestor/RH): criar credenciais (registro de usuario) exigindo senha.
+    - Despromoção:
+      - De cargo com login → cargo sem login: remover credenciais associadas.
+    - Atualização “lateral”:
+      - Gestor/RH permanece Gestor/RH: atualizar dados do usuário (nome, email, setor, cargo, e opcionalmente senha).
+
+Regra do CPF
+- Em formulários:
+  - CPF é limitado a 11 dígitos (`Validators.maxLength(11)` e regex `^[0-9]*$`).
+- No backend:
+  - Validar que CPF:
+    - tem exatamente 11 caracteres.
+    - contém apenas dígitos.
+  - Idealmente, aplicar também unicidade de CPF.
+
+ CRUD de usuários/colaboradores (UsersModule)
+ CRUD de cargos (CargossModule)
+ CRUD de setores (SetoresModule)
+
+Endereços sugeridos
+- Base path: `/users`
+
+Endpoints
+- `POST /users`
+  - Cria um novo colaborador/usuário.
+  - Body (CreateUserDto) deve conter:
+    - `nome`, `cpf`, `setorId` ou `setor`, `cargoId` ou `cargo`, `salario`, `gestorId`, `email`, `senha`, `tipo`.
+  - Validações:
+    - Ver regras de gestor, tipo e login acima.
+    - Campos obrigatórios.
+  - Regra de permissão:
+    - Apenas RH pode criar usuários.
+
+- `GET /users`
+  - Lista todos os usuários/colaboradores.
+  - RH: vê todos.
+  - Gestor: pode ser útil retornar apenas subordinados, mas o front atual carrega lista de colaboradores completa apenas no RH, e para Gestor só os subordinados via endpoint diferente. 
+
+- `GET /users/:id`
+  - Retorna detalhes de um usuário/colaborador.
+
+- `PUT /users/:id`
+  - Atualiza um colaborador/usuário.
+  - Body (UpdateUserDto) com as mesmas regras de promoção/despromoção entre cargos Gestor/RH e demais.
+
+- `DELETE /users/:id`
+  - Exclui colaborador/usuário.
+  - Se tiver credenciais (Gestor/RH), também remover associação de login conforme lógica do front (em `deleteColaborador` e `deleteUsuario`).
+
+Observação importante:
+- O frontend hoje gerencia separadamente:
+  - `usuarios` (tabela de logins)
+  - `colaboradores` (colaboradores com CPF, salário, etc.)
+- No backend real, idealmente unificar tudo em uma única tabela `users` com campos adicionais, mas a API precisa entregar dados que o frontend espera:
+  - Para a tela de RH, a lista de `colaboradores` exibida é uma composição de:
+    - colaboradores com CPF (tabela `colaboradores`), enriquecidos com setor/cargo/gestor e possível `solicitacaoFerias`.
+    - usuários que não têm registro de colaborador (sem CPF) para exibir gestores/RH apenas como usuários.
+- Ajustar a API para fornecer um endpoint de “colaboradores display” que retorne essa junção já calculada, ou adaptar o front para consumir dois endpoints (melhor: fornecer endpoint parecido com o que o front já compõe).
+
+Cadastro de cargos (Cargos)
+
+- Base path: `/roles` ou `/cargos`
+- Endpoints:
+  - `GET /cargos`: retorna lista de cargos `{ id, nome }`.
+  - `POST /cargos`: cria novo cargo.
+  - `PUT`/`DELETE` para manter full CRUD.
+- Permissões:
+  - Apenas RH gerencia cargos.
+
+Cadastro de setores (Setores)
+
+- Base path: `/setores`
+- Endpoints:
+  - `GET /setores`
+  - `POST /setores`
+  - `PUT`/`DELETE`
+- Permissões:
+  - Apenas RH gerencia setores.
+
+Regras de solicitação de férias (VacationRequestsModule)
+
+Requisitos principais
+- Toda solicitação:
+  - É criada por um gestor (no frontend, Gestor logado acessa `/request-vacation/:id` para um colaborador específico).
+  - Tem relação com um colaborador (`funcionarioId` ou `userId`).
+  - Tem campo `status` com enum: `Pendente`, `Aprovado`, `Reprovado`.
+
+Regras de negócio obrigatórias
+- Funcionário só pode ter **uma solicitação pendente por vez**:
+  - Antes de criar uma nova solicitação em `POST /vacation-requests`, verificar se já existe uma `Ferias` com `userId` daquele colaborador e `status = Pendente`.
+  - Se existir → retornar erro 400 com mensagem adequada ("Funcionário já possui uma solicitação de férias pendente.").
+
+- Duração só pode ser 7 ou 15 dias:
+  - Campo `periodo` (dias) deve ser validado em DTO para aceitar apenas `7` ou `15`.
+  - Se outro valor → erro 400.
+
+- Data inicial deve ser > 15 dias do dia atual:
+  - No front, o mínimo é hoje + 14 dias (mensagem: "A data de início deve ser pelo menos 14 dias a partir de hoje.").
+  - No backend, reforçar a regra de negócio:
+    - `startDate` deve ser pelo menos 14 dias à frente da data atual (ou 15 se preferir seguir ao pé da letra o texto da regra). 
+    - Se violado → erro 400 com mensagem explicando.
+
+- RH decide: Aprovado ou Reprovado:
+  - Somente usuários com `tipo = RH` podem:
+    - Aprovar: mudar `status` para `Aprovado`.
+    - Reprovar: mudar `status` para `Reprovado`, opcionalmente preenchendo `observacaoReprovacao`.
+  - Gestores não podem alterar status (apenas criar solicitação).
+
+Endpoints de férias
+- Base path: `/vacation-requests` (ou `/ferias`)
+
+- `POST /vacation-requests`
+  - Criado por Gestor autenticado.
+  - Body (CreateVacationRequestDto):
+    - `colaboradorId` (ou `userId`): ID do colaborador.
+    - `dataInicio` (string data ISO)
+    - `dias` (7 ou 15)
+    - `observacoes` (motivo, opcional, até 100 caracteres)
+  - Validações:
+    - Regras de férias acima (única pendente, data mínima, duração).
+    - Verificar se o colaborador informado é subordinado do gestor logado (segurança): 
+      - `colaborador.gestorId` = `gestor.id` logado (ou RH, se futuro).
+    - Status inicial deve ser sempre `Pendente`.
+
+- `GET /vacation-requests`
+  - RH: vê todas solicitações.
+  - Gestor: opcionalmente pode ver apenas solicitações dos seus subordinados.
+
+- `GET /vacation-requests/:id`
+  - Detalhes de uma solicitação específica.
+
+- `PUT /vacation-requests/:id`
+  - Opcional para alterar uma solicitação (enquanto pendente).
+  - Gestor pode editar somente se ainda estiver `Pendente`.
+
+- `DELETE /vacation-requests/:id`
+  - Opcional, para excluir solicitações (RH ou Gestor, com regras).
+
+- `PATCH /vacation-requests/:id/status`
+  - Endpoint específico para RH aprovar/reprovar:
+    - Body:
+      - `status`: "Aprovado" ou "Reprovado"
+      - `observacaoReprovacao?`: string
+    - Apenas RH.
+    - Atualizar `status` e `observacaoReprovacao`.
+
+DTOs e validações (class-validator)
+
+Exemplos de DTO (não é necessário código exato aqui, mas as regras):
+
+- `LoginDto`
+  - `email`: `@IsEmail()`, `@IsNotEmpty()`
+  - `senha`: `@IsString()`, `@MinLength(1)`
+
+- `CreateUserDto`
+  - `nome`: `@IsString()`, `@MaxLength(100)`, `@IsNotEmpty()`
+  - `email`: obrigatório se tipo/cargo exigir login (Gestor/RH) `@IsEmail()`
+  - `cpf`: `@Length(11,11)`, `@Matches(/^[0-9]*$/)`
+  - `salario`: `@IsNumber()`, `@Min(0)`
+  - `tipo`: `@IsEnum(Tipo)`
+  - `cargo`: `@IsEnum(Cargo)` ou id de cargo dinâmico
+  - `setor`: `@IsEnum(Setor)` ou id de setor dinâmico
+  - `gestorId`: obrigatório se tipo != Gestor e != RH.
+  - `senha`: se tipo/cargo exigir login:
+    - `@MinLength(6)`
+
+- `UpdateUserDto`
+  - Versão parcial do `CreateUserDto`, com regras especiais de promoção/despromoção e senha opcional.
+
+- `CreateVacationRequestDto`
+  - `colaboradorId`/`userId`: `@IsUUID()` (se usar UUID) ou `@IsInt()` (se numérico).
+  - `dataInicio`: `@IsDateString()`, com validação customizada para min +14 dias.
+  - `dias`: `@IsIn([7, 15])`
+  - `observacoes`: `@IsString()`, `@MaxLength(100)` (opcional).
+
+- `UpdateVacationStatusDto`
+  - `status`: `@IsEnum(Status)` mas restringir valores possíveis ao ser usado (Aprovado/Reprovado).
+  - `observacaoReprovacao?`: string opcional.
+
+Autenticação/token
+- Usar JWT:
+  - Guard padrão `@nestjs/jwt`.
+  - Estratégia `JwtStrategy` que lê `Authorization: Bearer <token>`.
+  - Ao logar, emitir token com payload mínimo necessário.
+  - Backend não precisa implementar refresh token inicialmente; apenas token de acesso simples é suficiente.
+
+Swagger
+- Configurar Swagger no `main.ts` do NestJS:
+  - Documentar:
+    - `/auth/login`
+    - `/users` (CRUD)
+    - `/cargos` (GET/POST)
+    - `/setores` (GET/POST)
+    - `/vacation-requests` (CRUD + PATCH status)
+  - Incluir exemplos de payloads que correspondam aos objetos usados no frontend:
+    - `Usuario`, `Colaborador`, `Setor`, `Cargo`, `Ferias`.
+
+Tratamento de erros e exceptions
+- Usar Exceptions do NestJS (`BadRequestException`, `UnauthorizedException`, `ForbiddenException`, `NotFoundException`) com mensagens claras e, quando possível, aproximadas das mensagens exibidas no frontend:
+  - Login inválido → `UnauthorizedException('E-mail ou senha inválidos.')`
+  - Acesso não autorizado → `ForbiddenException('Acesso não autorizado.')`
+  - Regra de férias (já existe pendente) → `BadRequestException('Funcionário já possui uma solicitação de férias pendente.')`
+  - Data inválida → `BadRequestException('A data de início deve ser pelo menos 14 dias a partir de hoje.')`
+
+Testes básicos
+- Criar testes unitários mínimos para:
+  - AuthService:
+    - Login com credenciais corretas.
+    - Login com senha incorreta.
+    - Login de usuário tipo Funcionario gerando "Acesso não autorizado".
+  - UsersService:
+    - Criação de colaborador com/sem gestor conforme tipo.
+    - Promoção/despromoção de cargos com login.
+  - VacationRequestsService:
+    - Criação de solicitação de férias válida.
+    - Tentativa de criar segunda solicitação pendente para mesmo colaborador.
+    - Validação de data mínima.
+
+Compatibilidade com o frontend Angular
+- O backend deve expor dados em formatos facilmente adaptáveis aos modelos atuais do front:
+  - `Usuario` (RH/gestor) hoje tem:
+    - `id: number`
+    - `nome: string`
+    - `email: string`
+    - `senha?: string`
+    - `setor: string`
+    - `cargo: string`
+  - `Colaborador`:
+    - `id: number`
+    - `nome: string`
+    - `cpf: string`
+    - `setorId: number`
+    - `cargoId: number`
+    - `salario: number`
+    - `gestorId?: number | null`
+    - `email?: string`
+    - `senha?: string`
+  - `Setor`:
+    - `{ id: number, nome: string }`
+  - `Cargo`:
+    - `{ id: number, nome: string }`
+  - `Ferias`:
+    - `id: number`
+    - `colaboradorId: number`
+    - `dataInicio: string`
+    - `dias: 7 | 15`
+    - `observacoes: string`
+    - `status: 'Pendente' | 'Aprovado' | 'Reprovado'`
+    - `observacaoReprovacao?: string`
+- O backend deve usar UUIDs internamente, mas pode expor IDs como strings para o front. 
+- Garantir que:
+  - Seja possível obter:
+    - Lista de usuários/gestores para popular combo de "gestores".
+    - Lista de "colaboradores display" incluindo:
+      - `setorNome`
+      - `cargoNome`
+      - `gestorNome`
+      - `solicitacaoFerias` (última/pedente) para a tela de RH.
+    - Dados de colaborador por ID para a tela de solicitação de férias do gestor.
+
+Resumo do que deve ser implementado
+1. Projeto NestJS novo:
+   - Com `AuthModule`, `UsersModule`, `VacationRequestsModule`, `CargosModule`, `SetoresModule`.
+   - Configurar `.env` com `DATABASE_URL` do PostgreSQL.
+2. Prisma configurado:
+   - `schema.prisma` com modelos `User`, `Ferias`, `Cargo`, `Setor` e enums `Status`, `Tipo`, `Cargo`, `Setor` (ou tabelas dinâmicas para `Cargo`/`Setor` conforme descrito).
+   - Migrations e seed para usuários iniciais (RH, gestores, colaboradores, setores, cargos).
+3. Auth:
+   - Login por e-mail e senha hash, com geração de token.
+   - Retornar o usuário completo no login.
+   - Implementar guards de roles (`RH`, `Gestor`, `Funcionario`).
+4. Users:
+   - CRUD completo com validações (gestorId, tipo, cargo, setor, CPF, salário).
+   - Regras de promoção/despromoção entre cargos com login (Gestor/RH) e demais.
+5. Cargos e Setores:
+   - CRUD completo
+   - Endpoints para listar e criar cargos/setores (compatíveis com telas de RH).
+6. VacationRequests:
+   - CRUD das solicitações de férias.
+   - Regras:
+     - Uma solicitação pendente por colaborador.
+     - Duração 7 ou 15.
+     - Data inicial > 14 dias do dia atual.
+     - Apenas RH aprova/reprova.
+7. Swagger:
+   - Documentar toda a API.
+8. Testes básicos:
+   - Auth, Users, VacationRequests.
+
+Objetivo final
+- Entregar um backend NestJS completamente funcional, com:
+  - Estrutura modular organizada.
+  - Prisma apontando para PostgreSQL `projeto-ferias`.
+  - Todas as regras de negócio descritas acima implementadas no backend, replicando fielmente o comportamento do frontend Angular atual.
+  - Seed inicial com usuários RH/gestores/colaboradores e dados base (setores, cargos).
+  - API autenticada por token, pronta para substituir o backend falso atual.
+
+
+Por favor criar todos os arquivos e me mostrar passo a passo, e com os comandos necessários, de como implementar esse backend.
+
