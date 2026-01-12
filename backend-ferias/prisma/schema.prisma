@@ -1,0 +1,90 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Tipo {
+  Funcionario
+  Gestor
+  RH
+}
+
+enum Status {
+  Pendente
+  Aprovado
+  Reprovado
+}
+
+model Setor {
+  id    Int    @id @default(autoincrement())
+  nome  String @unique
+  users User[]
+}
+
+model Cargo {
+  id    Int    @id @default(autoincrement())
+  nome  String @unique
+  users User[]
+}
+
+model User {
+  id           String   @id @default(uuid())
+  nome         String   @db.VarChar(100)
+  email        String   @unique
+  senha        String
+  cpf          String   @unique @db.Char(11)
+  idade        Int
+  salario      Float
+  tipo         Tipo     @default(Funcionario)
+
+  setorId      Int
+  setor        Setor    @relation(fields: [setorId], references: [id])
+
+  cargoId      Int
+  cargo        Cargo    @relation(fields: [cargoId], references: [id])
+
+  gestorId     String?
+  gestor       User?    @relation("UserGestor", fields: [gestorId], references: [id])
+  funcionarios User[]   @relation("UserGestor")
+
+  ferias       Ferias[]
+  avatar       Avatar?
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Ferias {
+  id                  String   @id @default(uuid())
+  userId              String
+  user                User     @relation(fields: [userId], references: [id])
+
+  startDate           DateTime
+  endDate             DateTime
+  periodo             Int
+  motivo              String   @db.VarChar(100)
+  status              Status   @default(Pendente)
+  observacaoReprovacao String?
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+model Avatar {
+  id        String   @id @default(uuid())
+  nome      String   // Nome do arquivo da imagem
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
